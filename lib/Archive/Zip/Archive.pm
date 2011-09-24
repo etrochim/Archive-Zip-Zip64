@@ -630,7 +630,7 @@ sub readFromFileHandle {
           IO::Seekable::SEEK_SET );
 
         $status = $self->_readZip64EndOfCentralDirectory($fh);
-
+        return $status if $status != AZ_OK;
      }
 
     $fh->seek( $centralDirectoryPosition,
@@ -704,25 +704,19 @@ sub _readZip64EndOfCentralDirectory {
     my $self = shift;
     my $fh = shift;
 
-    my $z64eocdSignature;
-    my $bytesRead = $fh->read( $z64eocdSignature, ZIP64_SIGNATURE_LENGTH );
-    if( $bytesRead != ZIP64_SIGNATURE_LENGTH ) {
-        return _ioError("reading zip64 end of central directory signature");
-    }
-    if( $z64eocdSignature != ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE ) {
-        return _formatError("failed to read zip 64 end of central directory signature");
-    }
-
+    $fh->seek( SIGNATURE_LENGTH, IO::Seekable::SEEK_CUR )
+      or return _ioError("reading zip64 end of central directory signature");
+      
     my $header = '';
     $bytesRead = $fh->read( $header, ZIP64_END_OF_CENTRAL_DIRECTORY_LENGTH ); 
     if( $bytesRead != ZIP64_END_OF_CENTRAL_DIRECTORY_LENGTH ) {
         return _ioError("reading zip64 end of central directory");
     }
     
-    my $z64ExtensibleDataLength;
     my ($size_l, $size_h);
     my ($entry_number_disk_l, $entry_number_disk_h);
     my ($entry_number_l, $entry_number_h);
+    my ($offset_l, $offset_h);
     my ($cd_size_l, $cd_size_h);
     (
         $size_h,
@@ -731,16 +725,40 @@ sub _readZip64EndOfCentralDirectory {
         $self->{'zip64VersionNeededToExtract'},
         $self->{'zip64DiskNumber'},
         $self->{'zip64DiskNumberWithStartOfCentralDirectory'},
-        $entry_number_disk_l,
         $entry_number_disk_h,
-        $entry_number_l,
+        $entry_number_disk_l,
         $entry_number_h,
-        $cd_size_l,
+        $entry_number_l,
         $cd_size_h,
-
+        $cd_size_l,
+        $offset_h,
+        $offset_l
     ) = unpack( ZIP64_END_OF_CENTRAL_DIRECTORY_FORMAT, $header );
 
+    $self->{'zip64SizeOfEndOfCentralDirectory'} =
+      ( Math::BigInt->new($size_l) << 32) + $size_h;
+    $self->{'zip64CentralDirectoryOffsetWRTStartingDiskNumber'} =
+      ( Math::BigInt->new($entry_number_disk_l) << 32) + $entry_number_disk_h;
+    $self->{'zip64NumberOfCentralDirectories'} =
+      ( Math::BigInt->new($entry_number_l) << 32) + $entry_number_h;
+    $self->{'zip64CentralDirectorySize'} =
+      ( Math::BigInt->new($cd_size_l) << 32) + $cd_size_h;
+    $self->{'zip64CentralDirectoryOffsetWRTStartingDiskNumber'} =
+      ( Math::BigInt->new($offset_l) << 32) + $offset_h;
 
+    # The length of the Zip64 Extensible data is however many bytes are left in the
+    # Zip64 End of Central Directory that we haven't yet read. However, the 
+    # zip64SizeOfEndOfCentralDirectory field doesn't count the size of itself,
+    # so we need to subtract that length off.
+    my $z64ExtensibleDataSize =
+      $self->{'zip64SizeOfEndOfCentralDirectory'} - ( ZIP64_END_OF_CENTRAL_DIRECTORY_LENGTH - 8 );
+
+    $bytesRead = $fh->read( $self->{'zip64ExtensibleData'}, $z64ExtensibleDataSize );
+    if( $bytesRead != $z64ExtensibleDataSize ) {
+      return _ioError("reading zip64 extensible data");
+    }
+
+    return AZ_OK;
 }
 
 sub _readZip64EndOfCentralDirectoryLocator {
