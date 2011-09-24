@@ -8,6 +8,7 @@ use File::Find ();
 use File::Spec ();
 use File::Copy ();
 use File::Basename;
+use Math::BigInt;
 use Cwd;
 
 use vars qw( $VERSION @ISA );
@@ -118,6 +119,10 @@ sub centralDirectorySize {
 
 sub centralDirectoryOffsetWRTStartingDiskNumber {
     shift->{'centralDirectoryOffsetWRTStartingDiskNumber'};
+}
+
+sub zip64EndOfCentralDirectoryRelativeOffset {
+    shift->{'zip64EndOfCentralDirectoryRelativeOffset'};
 }
 
 sub zipfileComment {
@@ -612,7 +617,23 @@ sub readFromFileHandle {
     $status = $self->_readEndOfCentralDirectory($fh);
     return $status if $status != AZ_OK;
 
-    $fh->seek( $eocdPosition - $self->centralDirectorySize(),
+    my $centralDirectoryPosition = $eocdPosition - $self->centralDirectorySize();
+
+    if($self->centralDirectoryOffsetWRTStartingDiskNumber() == 0xFFFFFFFF) {
+        $status = $self->_findZip64EndOfCentralDirectoryLocator($fh);
+        return $status if $status != AZ_OK;
+
+        $status = $self->_readZip64EndOfCentralDirectoryLocator($fh); 
+        return $status if $status != AZ_OK;
+
+        $fh->seek( $self->zip64EndOfCentralDirectoryRelativeOffset(),
+          IO::Seekable::SEEK_SET );
+
+        $status = $self->_readZip64EndOfCentralDirectory($fh);
+
+     }
+
+    $fh->seek( $centralDirectoryPosition,
         IO::Seekable::SEEK_SET )
       or return _ioError("Can't seek $fileName");
 
@@ -679,6 +700,76 @@ sub _readEndOfCentralDirectory {
     return AZ_OK;
 }
 
+sub _readZip64EndOfCentralDirectory {
+    my $self = shift;
+    my $fh = shift;
+
+    my $z64eocdSignature;
+    my $bytesRead = $fh->read( $z64eocdSignature, ZIP64_SIGNATURE_LENGTH );
+    if( $bytesRead != ZIP64_SIGNATURE_LENGTH ) {
+        return _ioError("reading zip64 end of central directory signature");
+    }
+    if( $z64eocdSignature != ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE ) {
+        return _formatError("failed to read zip 64 end of central directory signature");
+    }
+
+    my $header = '';
+    $bytesRead = $fh->read( $header, ZIP64_END_OF_CENTRAL_DIRECTORY_LENGTH ); 
+    if( $bytesRead != ZIP64_END_OF_CENTRAL_DIRECTORY_LENGTH ) {
+        return _ioError("reading zip64 end of central directory");
+    }
+    
+    my $z64ExtensibleDataLength;
+    my ($size_l, $size_h);
+    my ($entry_number_disk_l, $entry_number_disk_h);
+    my ($entry_number_l, $entry_number_h);
+    my ($cd_size_l, $cd_size_h);
+    (
+        $size_h,
+        $size_l,
+        $self->{'zip64VersionMakeBy'},
+        $self->{'zip64VersionNeededToExtract'},
+        $self->{'zip64DiskNumber'},
+        $self->{'zip64DiskNumberWithStartOfCentralDirectory'},
+        $entry_number_disk_l,
+        $entry_number_disk_h,
+        $entry_number_l,
+        $entry_number_h,
+        $cd_size_l,
+        $cd_size_h,
+
+    ) = unpack( ZIP64_END_OF_CENTRAL_DIRECTORY_FORMAT, $header );
+
+
+}
+
+sub _readZip64EndOfCentralDirectoryLocator {
+    my $self = shift;
+    my $fh   = shift;
+
+    # Skip past signature
+    $fh->seek( SIGNATURE_LENGTH, IO::Seekable::SEEK_CUR )
+      or return _ioError("Can't seek past Z64EOCDL signature");
+
+    my $header = '';
+    my $bytesRead = $fh->read( $header, ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH );
+    if ( $bytesRead != ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH ) {
+        return _ioError("reading zip64 end of central directory locator");
+    }
+
+    my ($relative_offset_h, $relative_offset_l);
+    (
+        $self->{'diskNumberWithStartOfZip64CentralDirectoryLocator'},
+        $relative_offset_h,
+        $relative_offset_l,
+        $self->{'totalNumberOfDisks'},
+    ) = unpack( ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_FORMAT, $header );
+
+    $self->{'zip64EndOfCentralDirectoryRelativeOffset'} = (Math::BigInt->new($relative_offset_l) << 32) + $relative_offset_h;
+
+    return AZ_OK;
+}
+
 # Seek in my file to the end, then read backwards until we find the
 # signature of the central directory record. Leave the file positioned right
 # before the signature. Returns AZ_OK if success.
@@ -719,6 +810,46 @@ sub _findEndOfCentralDirectory {
     }
     else {
         return _formatError("can't find EOCD signature");
+    }
+}
+
+sub _findZip64EndOfCentralDirectoryLocator {
+    my $self = shift;
+    my $fh   = shift;
+    my $data = '';
+    $fh->seek( 0, IO::Seekable::SEEK_END )
+      or return _ioError("seeking to end");
+
+    my $fileLength = $fh->tell();
+    if ( $fileLength < ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH + 4 ) {
+        return _formatError("file is too short");
+    }
+
+    my $seekOffset = 0;
+    my $pos        = -1;
+    for ( ; ; ) {
+        $seekOffset += 512;
+        $seekOffset = $fileLength if ( $seekOffset > $fileLength );
+        $fh->seek( -$seekOffset, IO::Seekable::SEEK_END )
+          or return _ioError("seek failed");
+        my $bytesRead = $fh->read( $data, $seekOffset );
+        if ( $bytesRead != $seekOffset ) {
+            return _ioError("read failed");
+        }
+        $pos = rindex( $data, ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE_STRING );
+        last
+          if ( $pos >= 0
+            or $seekOffset == $fileLength
+            or $seekOffset >= $Archive::Zip::ChunkSize );
+    }
+
+    if ( $pos >= 0 ) {
+        $fh->seek( $pos - $seekOffset, IO::Seekable::SEEK_CUR )
+          or return _ioError("seeking to Z64EOCDL");
+        return AZ_OK;
+    }
+    else {
+        return _formatError("can't find Z64EOCDL signature");
     }
 }
 
