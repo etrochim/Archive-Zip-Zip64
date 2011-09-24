@@ -118,6 +118,10 @@ BEGIN {
             ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE_STRING
             ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_FORMAT
             ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH
+            ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE
+            ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE_STRING
+            ZIP64_END_OF_CENTRAL_DIRECTORY_FORMAT
+            ZIP64_END_OF_CENTRAL_DIRECTORY_LENGTH
             ) ],
 
         # For Internal Use Only
@@ -211,7 +215,6 @@ use constant IFA_BINARY_FILE    => 0;
 # PKZIP file format miscellaneous constants (for internal use only)
 use constant SIGNATURE_FORMAT   => "V";
 use constant SIGNATURE_LENGTH   => 4;
-use constant ZIP64_SIGNATURE_LENGTH => 8;
 
 # these lengths are without the signature.
 use constant LOCAL_FILE_HEADER_SIGNATURE   => 0x04034b50;
