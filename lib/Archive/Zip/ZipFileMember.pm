@@ -357,10 +357,44 @@ sub _readCentralDirectoryFileHeader {
         }
     }
     if ($extraFieldLength) {
+        my $bytesRemaining = $extraFieldLength;
+
+        $self->{'cdExtraField'} = '';
+        while($bytesRemaining > 0) {
+            my ($header, $fieldData);
+            $bytesRead = $fh->read( $header, EXTRA_FIELD_HEADER_LENGTH );
+            if( $bytesRead != EXTRA_FIELD_HEADER_LENGTH ) {
+                return _ioError("reading central dir extra field");
+            }
+            $bytesRemaining -= EXTRA_FIELD_HEADER_LENGTH;
+            
+            my ($extraFieldTag, $extraFieldSize);
+            (
+              $extraFieldTag,
+              $extraFieldSize
+            ) = unpack( EXTRA_FIELD_HEADER_FORMAT, $header);
+
+            $bytesRead = $fh->read( $fieldData, $extraFieldSize );
+            if( $bytesRead != $extraFieldSize ) {
+                return _ioError("reading central dir extra field");
+            }
+            $bytesRemaining -= $extraFieldSize;
+
+            $self->{'cdExtraField'} .= $header . $fieldData;
+
+            if( $extraFieldTag == ZIP64_EXTRA_FIELD_TAG_SIGNATURE ) {
+                $self->_become('Archive::Zip::Zip64::ZipFileMember');
+                $self->_readZip64ExtraField($fieldData);
+            }
+        }
+        
+
         $bytesRead = $fh->read( $self->{'cdExtraField'}, $extraFieldLength );
         if ( $bytesRead != $extraFieldLength ) {
             return _ioError("reading central dir extra field");
         }
+
+        
     }
     if ($fileCommentLength) {
         $bytesRead = $fh->read( $self->{'fileComment'}, $fileCommentLength );

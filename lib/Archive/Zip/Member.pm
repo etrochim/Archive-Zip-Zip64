@@ -137,11 +137,6 @@ sub _becomeDirectoryIfNecessary {
     return $self;
 }
 
-# Morph into given class (do whatever cleanup I need to do)
-sub _become {
-    return bless( $_[0], $_[1] );
-}
-
 sub versionMadeBy {
     shift->{'versionMadeBy'};
 }
