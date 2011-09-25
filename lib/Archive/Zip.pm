@@ -10,6 +10,7 @@ use Compress::Raw::Zlib ();
 use File::Spec          ();
 use File::Temp          ();
 use FileHandle          ();
+use Math::BigInt;
 
 use vars qw( $VERSION @ISA );
 BEGIN {
@@ -118,16 +119,22 @@ BEGIN {
             ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE_STRING
             ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_FORMAT
             ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH
+            ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_TOTAL_LENGTH
             ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE
             ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE_STRING
             ZIP64_END_OF_CENTRAL_DIRECTORY_FORMAT
             ZIP64_END_OF_CENTRAL_DIRECTORY_LENGTH
+            EXTRA_FIELD_HEADER_LENGTH
+            EXTRA_FIELD_HEADER_FORMAT
+            ZIP64_EXTRA_FIELD_TAG_SIGNATURE
+            ZIP64_EXTRA_FIELD_FORMAT
             ) ],
 
         # For Internal Use Only
         UTILITY_METHODS => [ qw(
             _error
             _printError
+            _partsToBigint
             _ioError
             _formatError
             _subclassResponsibility
@@ -245,6 +252,7 @@ use constant ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE_STRING =>
     pack( "V", ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE );
 use constant ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_FORMAT => "V4";
 use constant ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH => 16;
+use constant ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_TOTAL_LENGTH => 20;
 
 use constant ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE => 0x06064b50;
 use constant ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE_STRING =>
@@ -255,6 +263,11 @@ use constant ZIP64_END_OF_CENTRAL_DIRECTORY_LENGTH => 52;
 use constant GPBF_IMPLODING_8K_SLIDING_DICTIONARY_MASK => 1 << 1;
 use constant GPBF_IMPLODING_3_SHANNON_FANO_TREES_MASK  => 1 << 2;
 use constant GPBF_IS_COMPRESSED_PATCHED_DATA_MASK      => 1 << 5;
+
+use constant EXTRA_FIELD_HEADER_LENGTH => 4;
+use constant EXTRA_FIELD_HEADER_FORMAT => "v2";
+use constant ZIP64_EXTRA_FIELD_TAG_SIGNATURE => 0x0001;
+use constant ZIP64_EXTRA_FIELD_FORMAT => "V7";
 
 # the rest of these are not supported in this module
 use constant COMPRESSION_SHRUNK    => 1;    # file is Shrunk
@@ -273,8 +286,10 @@ require Archive::Zip::Member;
 require Archive::Zip::FileMember;
 require Archive::Zip::DirectoryMember;
 require Archive::Zip::ZipFileMember;
+require Archive::Zip::Zip64::ZipFileMember;
 require Archive::Zip::NewFileMember;
 require Archive::Zip::StringMember;
+require Archive::Zip::Zip64::Archive;
 
 use constant ZIPARCHIVECLASS => 'Archive::Zip::Archive';
 use constant ZIPMEMBERCLASS  => 'Archive::Zip::Member';
@@ -348,6 +363,11 @@ sub setErrorHandler {
 
 ######################################################################
 # Private utility functions (not methods).
+
+sub _partsToBigint {
+    my ($h, $l) = shift;
+    return ( Math::BigInt->new($l) << 32) + $h;
+}
 
 sub _printError {
     my $string = join ( ' ', @_, "\n" );
@@ -495,6 +515,11 @@ sub _readSignature {
     }
 
     return ( $status, $signature );
+}
+
+# Morph into given class (do whatever cleanup I need to do)
+sub _become {
+    return bless( $_[0], $_[1] );
 }
 
 # Utility method to make and open a temp file.
