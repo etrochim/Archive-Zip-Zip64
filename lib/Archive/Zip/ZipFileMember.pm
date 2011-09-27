@@ -387,14 +387,6 @@ sub _readCentralDirectoryFileHeader {
                 $self->_readZip64ExtraField($fieldData);
             }
         }
-        
-
-        $bytesRead = $fh->read( $self->{'cdExtraField'}, $extraFieldLength );
-        if ( $bytesRead != $extraFieldLength ) {
-            return _ioError("reading central dir extra field");
-        }
-
-        
     }
     if ($fileCommentLength) {
         $bytesRead = $fh->read( $self->{'fileComment'}, $fileCommentLength );

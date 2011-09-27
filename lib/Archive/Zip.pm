@@ -502,7 +502,8 @@ sub _readSignature {
             && $signature != CENTRAL_DIRECTORY_FILE_HEADER_SIGNATURE
             && $signature != LOCAL_FILE_HEADER_SIGNATURE
             && $signature != END_OF_CENTRAL_DIRECTORY_SIGNATURE
-            && $signature != DATA_DESCRIPTOR_SIGNATURE ) )
+            && $signature != DATA_DESCRIPTOR_SIGNATURE
+            && $signature != ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE) )
     {
         my $errmsg = sprintf( "bad signature: 0x%08x", $signature );
         if ( _isSeekable($fh) )
