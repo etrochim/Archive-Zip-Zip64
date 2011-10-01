@@ -140,6 +140,7 @@ sub _skipLocalFileHeader {
     }
     my $fileNameLength;
     my $extraFieldLength;
+    my ($compressedSize, $uncompressedSize);
     my $bitFlag;
     (
         undef,    # $self->{'versionNeededToExtract'},
@@ -147,8 +148,8 @@ sub _skipLocalFileHeader {
         undef,    # $self->{'compressionMethod'},
         undef,    # $self->{'lastModFileDateTime'},
         undef,    # $crc32,
-        undef,    # $compressedSize,
-        undef,    # $uncompressedSize,
+        $compressedSize,    # $compressedSize,
+        $uncompressedSize,    # $uncompressedSize,
         $fileNameLength,
         $extraFieldLength
     ) = unpack( LOCAL_FILE_HEADER_FORMAT, $header );
@@ -159,6 +160,7 @@ sub _skipLocalFileHeader {
     }
 
     if ($extraFieldLength) {
+      #TODO: Read the extra field data like in _readCentralDirectoryFileHeader
         $bytesRead =
           $self->fh()->read( $self->{'localExtraField'}, $extraFieldLength );
         if ( $bytesRead != $extraFieldLength ) {
@@ -186,7 +188,7 @@ sub _skipLocalFileHeader {
         my $status = $self->_readDataDescriptor();
         return $status unless $status == AZ_OK;
 
-	# The buffer withe encrypted data is prefixed with a new
+	# The buffer with encrypted data is prefixed with a new
 	# encrypted 12 byte header. The size only changes when
 	# the buffer is also compressed
 	$self->isEncrypted && $oldUncompressedSize > $self->{uncompressedSize} and
@@ -312,7 +314,11 @@ sub _readDataDescriptor {
       unless defined( $self->{'eocdCrc32'} );
     $self->{'crc32'}            = $crc32;
     $self->{'compressedSize'}   = $compressedSize;
-    $self->{'uncompressedSize'} = $uncompressedSize;
+    # I have found valid archives (according to Info Zip) that have
+    # the uncompressedSize in the data descriptor set to 0. I don't
+    # know why this is the case but this is a dirty workaround until
+    # I can get more information.
+    $self->{'uncompressedSize'} = $uncompressedSize if $uncompressedSize;
 
     return AZ_OK;
 }
