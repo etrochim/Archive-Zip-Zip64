@@ -1,4 +1,4 @@
-package Archive::Zip::Zip64::Archive;
+package Archive::Zip::Zip64::ZipFileMember;
 
 # Represents a generic ZIP64 archive
 
