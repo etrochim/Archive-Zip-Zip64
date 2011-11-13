@@ -623,11 +623,15 @@ sub readFromFileHandle {
     $self->{'eocdOffset'} = $eocdPosition - $self->centralDirectorySize()
       - $self->centralDirectoryOffsetWRTStartingDiskNumber();
 
-    if($self->centralDirectoryOffsetWRTStartingDiskNumber() == 0xFFFFFFFF ||
-       $self->centralDirectorySize() == 0xFFFFFFFF) {
+    # Determine if this archive is a zip64 archive by looking for the
+    # end of central directory locator signature
+    $fh->seek($eocdPosition - (ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH + SIGNATURE_LENGTH),
+      IO::Seekable::SEEK_SET);
+    my $bytesRead = $fh->read( my $zip64EOCDLocatorSignature, SIGNATURE_LENGTH );
+    $zip64EOCDLocatorSignature = unpack( SIGNATURE_FORMAT, $zip64EOCDLocatorSignature );
+
+    if($zip64EOCDLocatorSignature == ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE) {
         $self->_become(ZIP64ARCHIVECLASS);
-        $status = $self->_findZip64EndOfCentralDirectoryLocator($fh);
-        return $status if $status != AZ_OK;
 
         $status = $self->_readZip64EndOfCentralDirectoryLocator($fh); 
         return $status if $status != AZ_OK;
@@ -648,7 +652,11 @@ sub readFromFileHandle {
           $self->zip64EndOfCentralDirectoryRelativeOffset() - $self->centralDirectorySize();
 
         return $status if $status != AZ_OK;
-     }
+    }
+    elsif($self->centralDirectoryOffsetWRTStartingDiskNumber() == 0xFFFFFFFF ||
+       $self->centralDirectorySize() == 0xFFFFFFFF) {
+        $status = _formatError("File looks like a zip64 archive but could not find the zip64 end of central directory locator in file $fileName");
+    }
 
     $fh->seek( $centralDirectoryPosition,
         IO::Seekable::SEEK_SET )

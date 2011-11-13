@@ -100,10 +100,6 @@ sub _readZip64EndOfCentralDirectoryLocator {
     my $self = shift;
     my $fh   = shift;
 
-    # Skip past signature
-    $fh->seek( SIGNATURE_LENGTH, IO::Seekable::SEEK_CUR )
-      or return _ioError("Can't seek past Z64EOCDL signature");
-
     my $header = '';
     my $bytesRead = $fh->read( $header, ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH );
     if ( $bytesRead != ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH ) {
@@ -118,49 +114,9 @@ sub _readZip64EndOfCentralDirectoryLocator {
         $self->{'totalNumberOfDisks'},
     ) = unpack( ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_FORMAT, $header );
 
-    $self->{'zip64EndOfCentralDirectoryRelativeOffset'} = (Math::BigInt->new($relative_offset_l) << 32) + $relative_offset_h;
+    $self->{'zip64EndOfCentralDirectoryRelativeOffset'} = _partsToBigint($relative_offset_h, $relative_offset_l);
 
     return AZ_OK;
-}
-
-sub _findZip64EndOfCentralDirectoryLocator {
-    my $self = shift;
-    my $fh   = shift;
-    my $data = '';
-    $fh->seek( 0, IO::Seekable::SEEK_END )
-      or return _ioError("seeking to end");
-
-    my $fileLength = $fh->tell();
-    if ( $fileLength < ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_LENGTH + 4 ) {
-        return _formatError("file is too short");
-    }
-
-    my $seekOffset = 0;
-    my $pos        = -1;
-    for ( ; ; ) {
-        $seekOffset += 512;
-        $seekOffset = $fileLength if ( $seekOffset > $fileLength );
-        $fh->seek( -$seekOffset, IO::Seekable::SEEK_END )
-          or return _ioError("seek failed");
-        my $bytesRead = $fh->read( $data, $seekOffset );
-        if ( $bytesRead != $seekOffset ) {
-            return _ioError("read failed");
-        }
-        $pos = rindex( $data, ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE_STRING );
-        last
-          if ( $pos >= 0
-            or $seekOffset == $fileLength
-            or $seekOffset >= $Archive::Zip::ChunkSize );
-    }
-
-    if ( $pos >= 0 ) {
-        $fh->seek( $pos - $seekOffset, IO::Seekable::SEEK_CUR )
-          or return _ioError("seeking to Z64EOCDL");
-        return AZ_OK;
-    }
-    else {
-        return _formatError("can't find Z64EOCDL signature");
-    }
 }
 
 1;
